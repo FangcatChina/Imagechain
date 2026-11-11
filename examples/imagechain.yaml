@@ -1,0 +1,52 @@
+version: 1
+provider: github
+branch: main
+concurrency: 2
+
+repos:
+  - key: base-image
+    repo: acme/base-image
+    description: Base runtime image with common tooling
+    workflows:
+      - file: build-image.yml
+        inputs:
+          platform: linux/amd64
+
+  - key: postgres-image
+    repo: acme/postgres-image
+    description: Postgres with preinstalled extensions
+    dependsOn: [base-image]
+    workflows: [build-image.yml]
+
+  - key: redis-image
+    repo: acme/redis-image
+    description: Redis with healthcheck scripts
+    dependsOn: [base-image]
+    workflows: [build-image.yml]
+
+  - key: api-image
+    repo: acme/api-image
+    description: Business API service image
+    dependsOn: [postgres-image, redis-image]
+    workflows:
+      - file: build-image.yml
+      - file: smoke-test.yml
+        optional: true
+
+  - key: worker-image
+    repo: acme/worker-image
+    description: Async worker image
+    dependsOn: [postgres-image, redis-image]
+    workflows: [build-image.yml]
+
+  - key: frontend-image
+    repo: acme/frontend-image
+    description: Web frontend image
+    dependsOn: [api-image]
+    workflows: [build-image.yml]
+
+  - key: docs-site
+    repo: acme/docs-site
+    description: Documentation site deployment
+    dependsOn: [frontend-image]
+    workflows: [deploy-docs.yml]
