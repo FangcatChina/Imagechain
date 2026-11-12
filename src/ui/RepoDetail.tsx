@@ -56,7 +56,7 @@ export function RepoDetail({ repoKey }: Props) {
 
       <div className="detail-actions">
         <button className="primary" disabled={running} onClick={() => void startPlan([repoKey])}>
-          Build chain
+          Build + downstream
         </button>
         <button onClick={() => setPublishMode('tag')}>Tag</button>
         <button onClick={() => setPublishMode('release')}>Release</button>

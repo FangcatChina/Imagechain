@@ -30,18 +30,38 @@ export default {
       return json({ ok: true, oauthWeb: Boolean(env.GITHUB_CLIENT_SECRET) });
     }
 
+    if (url.pathname === '/oauth/authorize' && request.method === 'GET') {
+      if (!env.GITHUB_CLIENT_ID) {
+        return json({ error: 'oauth_disabled', error_description: 'GITHUB_CLIENT_ID is not set' }, 400);
+      }
+      const params = new URLSearchParams({
+        client_id: env.GITHUB_CLIENT_ID,
+        redirect_uri: url.searchParams.get('redirect_uri') || '',
+        scope: url.searchParams.get('scope') || 'repo workflow read:user',
+        state: url.searchParams.get('state') || '',
+        allow_signup: 'true',
+      });
+      return Response.redirect(`https://github.com/login/oauth/authorize?${params.toString()}`, 302);
+    }
+
     if (url.pathname === '/device/code' && request.method === 'POST') {
+      if (!env.GITHUB_CLIENT_ID) {
+        return json({ error: 'oauth_disabled', error_description: 'GITHUB_CLIENT_ID is not set' }, 400);
+      }
       const body = await request.json().catch(() => ({}));
       return proxyForm('https://github.com/login/device/code', {
-        client_id: body.client_id || env.GITHUB_CLIENT_ID,
+        client_id: env.GITHUB_CLIENT_ID,
         scope: body.scope || 'repo workflow read:user',
       });
     }
 
     if (url.pathname === '/oauth/access_token' && request.method === 'POST') {
+      if (!env.GITHUB_CLIENT_ID) {
+        return json({ error: 'oauth_disabled', error_description: 'GITHUB_CLIENT_ID is not set' }, 400);
+      }
       const body = await request.json().catch(() => ({}));
       return proxyForm('https://github.com/login/oauth/access_token', {
-        client_id: body.client_id || env.GITHUB_CLIENT_ID,
+        client_id: env.GITHUB_CLIENT_ID,
         device_code: body.device_code,
         grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
       });

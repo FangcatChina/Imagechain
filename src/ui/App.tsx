@@ -128,21 +128,9 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark">
-            <svg viewBox="0 0 24 24" role="img" aria-label="Imagechain">
-              <g fill="#fffefb" stroke="#333333" strokeWidth="1.1" strokeLinejoin="round">
-                <ellipse cx="12" cy="6.2" rx="3.1" ry="4.2" />
-                <ellipse cx="12" cy="6.2" rx="3.1" ry="4.2" transform="rotate(72 12 12)" />
-                <ellipse cx="12" cy="6.2" rx="3.1" ry="4.2" transform="rotate(144 12 12)" />
-                <ellipse cx="12" cy="6.2" rx="3.1" ry="4.2" transform="rotate(216 12 12)" />
-                <ellipse cx="12" cy="6.2" rx="3.1" ry="4.2" transform="rotate(288 12 12)" />
-              </g>
-              <circle cx="12" cy="12" r="2.6" fill="#333333" />
-            </svg>
+            <img src="/vanillaos-logo-icon.svg" alt="" aria-hidden="true" />
           </span>
-          <div>
-            <h1>Imagechain</h1>
-            <p>Dependency-aware image build orchestrator</p>
-          </div>
+          <h1>Imagechain</h1>
         </div>
 
         <div className="topbar-mid">

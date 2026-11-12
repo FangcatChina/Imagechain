@@ -105,15 +105,12 @@ export function descendantKeys(key: string, repos: RepoNode[]): Set<string> {
   return out;
 }
 
-export function withAncestors(repos: RepoNode[], keys: string[]): RepoNode[] {
-  const byKey = new Map(repos.map((r) => [r.key, r]));
+export function withDescendants(repos: RepoNode[], keys: string[]): RepoNode[] {
   const keep = new Set<string>();
-  const stack = [...keys];
-  while (stack.length) {
-    const key = stack.pop() as string;
-    if (keep.has(key) || !byKey.has(key)) continue;
+  for (const key of keys) {
+    if (!repos.some((repo) => repo.key === key)) continue;
     keep.add(key);
-    stack.push(...(byKey.get(key) as RepoNode).dependsOn);
+    for (const dependent of descendantKeys(key, repos)) keep.add(dependent);
   }
-  return repos.filter((r) => keep.has(r.key));
+  return repos.filter((repo) => keep.has(repo.key));
 }

@@ -200,6 +200,24 @@ class DemoClient implements GitProviderClient {
     return list[list.length - 1].id;
   }
 
+  async latestRun(ref: RepoRef, opts: { branch?: string; file?: string } = {}): Promise<RunInfo | null> {
+    const entry = ensureState(ref);
+    const files = opts.file
+      ? [opts.file]
+      : (await this.listWorkflows(ref)).map((item) => item.file);
+    for (const file of files) {
+      await this.latestRunId(ref, file);
+    }
+    let latest: DemoRunRecord | null = null;
+    for (const list of entry.runs.values()) {
+      for (const record of list) {
+        if (opts.file && record.file !== opts.file) continue;
+        if (!latest || record.createdAt > latest.createdAt) latest = record;
+      }
+    }
+    return latest ? toRunInfo(latest) : null;
+  }
+
   async run(ref: RepoRef, runId: string): Promise<RunInfo> {
     const entry = ensureState(ref);
     for (const list of entry.runs.values()) {

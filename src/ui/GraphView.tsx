@@ -9,6 +9,36 @@ const NODE_H = 112;
 const GAP_X = 150;
 const GAP_Y = 26;
 const PADDING = 40;
+const ROUTE_RADIUS = 12;
+
+function route(points: Array<{ x: number; y: number }>): string {
+  const clean = points.filter(
+    (point, index) =>
+      index === 0 ||
+      Math.abs(point.x - points[index - 1].x) > 0.5 ||
+      Math.abs(point.y - points[index - 1].y) > 0.5,
+  );
+  if (!clean.length) return '';
+  let d = `M ${clean[0].x} ${clean[0].y}`;
+  for (let index = 1; index < clean.length; index += 1) {
+    const previous = clean[index - 1];
+    const current = clean[index];
+    const next = clean[index + 1];
+    if (!next) {
+      d += ` L ${current.x} ${current.y}`;
+      break;
+    }
+    const inLength = Math.hypot(current.x - previous.x, current.y - previous.y);
+    const outLength = Math.hypot(next.x - current.x, next.y - current.y);
+    const radius = Math.min(ROUTE_RADIUS, inLength / 2, outLength / 2);
+    const inX = current.x - ((current.x - previous.x) / inLength) * radius;
+    const inY = current.y - ((current.y - previous.y) / inLength) * radius;
+    const outX = current.x + ((next.x - current.x) / outLength) * radius;
+    const outY = current.y + ((next.y - current.y) / outLength) * radius;
+    d += ` L ${inX} ${inY} Q ${current.x} ${current.y} ${outX} ${outY}`;
+  }
+  return d;
+}
 
 interface Props {
   repos: RepoNode[];
@@ -18,11 +48,25 @@ interface Props {
   onSelect: (key: string) => void;
 }
 
+interface EdgePath {
+  key: string;
+  from: string;
+  to: string;
+  d: string;
+}
+
+interface EdgeRef {
+  key: string;
+  from: string;
+  to: string;
+}
+
 interface Layout {
   xs: Record<string, number>;
   ys: Record<string, number>;
   width: number;
   height: number;
+  edges: EdgePath[];
 }
 
 export function GraphView({ repos, plan, baseline, selected, onSelect }: Props) {
@@ -33,21 +77,135 @@ export function GraphView({ repos, plan, baseline, selected, onSelect }: Props) 
 
   const layout = useMemo<Layout>(() => {
     const graph = buildGraph(repos);
-    const xs: Record<string, number> = {};
-    const ys: Record<string, number> = {};
-    const rows = Math.max(1, ...graph.levels.map((level) => level.length));
-    const height = rows * (NODE_H + GAP_Y) - GAP_Y;
+    const levelOf = new Map<string, number>();
+    graph.levels.forEach((level, column) => level.forEach((key) => levelOf.set(key, column)));
 
-    graph.levels.forEach((level, column) => {
-      const columnHeight = level.length * (NODE_H + GAP_Y) - GAP_Y;
-      level.forEach((key, row) => {
-        xs[key] = column * (NODE_W + GAP_X);
-        ys[key] = (height - columnHeight) / 2 + row * (NODE_H + GAP_Y);
+    const levels = graph.levels.map((level) => [...level]);
+    const virtualIds = new Set<string>();
+    const parentsOf = new Map<string, string[]>();
+    const childrenOf = new Map<string, string[]>();
+    const addParent = (child: string, parent: string) => {
+      const list = parentsOf.get(child);
+      if (list) list.push(parent);
+      else parentsOf.set(child, [parent]);
+      const kids = childrenOf.get(parent);
+      if (kids) kids.push(child);
+      else childrenOf.set(parent, [child]);
+    };
+
+    // Long edges hop through every column they skip so they never cut across unrelated cards.
+    const chains = new Map<string, string[]>();
+    for (const repo of repos) {
+      for (const dep of repo.dependsOn) {
+        const from = levelOf.get(dep);
+        const to = levelOf.get(repo.key);
+        if (from === undefined || to === undefined || to <= from) continue;
+        const edgeKey = `${dep}->${repo.key}`;
+        const virtuals: string[] = [];
+        let previous = dep;
+        for (let column = from + 1; column < to; column += 1) {
+          const id = `${edgeKey}#${column}`;
+          virtualIds.add(id);
+          levels[column].push(id);
+          virtuals.push(id);
+          addParent(id, previous);
+          previous = id;
+        }
+        addParent(repo.key, previous);
+        chains.set(edgeKey, virtuals);
+      }
+    }
+
+    const heights = (id: string) => (virtualIds.has(id) ? 0 : NODE_H);
+    const gaps = (id: string) => (virtualIds.has(id) ? 13 : GAP_Y);
+    const centers: Record<string, number> = {};
+
+    const compact = (level: string[]) => {
+      const sorted = [...level].sort(
+        (a, b) => (centers[a] ?? 0) - (centers[b] ?? 0) || a.localeCompare(b),
+      );
+      let previous = Number.NEGATIVE_INFINITY;
+      let previousHeight = 0;
+      for (const id of sorted) {
+        const height = heights(id);
+        const floor = previous + previousHeight / 2 + gaps(id) + height / 2;
+        centers[id] = Math.max(centers[id] ?? floor, floor);
+        previous = centers[id];
+        previousHeight = height;
+      }
+    };
+
+    levels.forEach((level) => {
+      level.forEach((id, index) => {
+        const parents = (parentsOf.get(id) ?? []).filter((parent) => centers[parent] !== undefined);
+        centers[id] = parents.length
+          ? parents.reduce((sum, parent) => sum + centers[parent], 0) / parents.length
+          : index * (NODE_H + GAP_Y) + NODE_H / 2;
       });
+      compact(level);
     });
 
-    const width = Math.max(NODE_W, graph.levels.length * (NODE_W + GAP_X) - GAP_X);
-    return { xs, ys, width, height };
+    // Center every node over its children so each fork opens symmetrically.
+    for (let pass = 0; pass < 4; pass += 1) {
+      for (let column = levels.length - 1; column >= 0; column -= 1) {
+        for (const id of levels[column]) {
+          const children = childrenOf.get(id) ?? [];
+          if (!children.length) continue;
+          centers[id] = children.reduce((sum, child) => sum + centers[child], 0) / children.length;
+        }
+        compact(levels[column]);
+      }
+    }
+
+    let minTop = Number.POSITIVE_INFINITY;
+    let maxBottom = 0;
+    for (const id of Object.keys(centers)) {
+      const half = heights(id) / 2;
+      minTop = Math.min(minTop, centers[id] - half);
+      maxBottom = Math.max(maxBottom, centers[id] + half);
+    }
+    if (!Number.isFinite(minTop)) minTop = 0;
+
+    const lane = (gap: number) => gap * (NODE_W + GAP_X) + NODE_W + GAP_X / 2;
+
+    const xs: Record<string, number> = {};
+    const ys: Record<string, number> = {};
+    levels.forEach((level, column) => {
+      for (const id of level) {
+        // Virtual waypoints sit in the free lane between two columns.
+        xs[id] = virtualIds.has(id) ? lane(column - 1) : column * (NODE_W + GAP_X);
+        ys[id] = centers[id] - heights(id) / 2 - minTop;
+      }
+    });
+
+    const centerOf = (id: string) => (ys[id] ?? 0) + heights(id) / 2;
+
+    const edgeList: EdgeRef[] = repos.flatMap((repo) =>
+      repo.dependsOn
+        .filter((dep) => levelOf.has(dep) && levelOf.has(repo.key))
+        .map((dep) => ({ key: `${dep}->${repo.key}`, from: dep, to: repo.key })),
+    );
+
+    const edges = edgeList.map((edge) => {
+      const toLevel = levelOf.get(edge.to) ?? 0;
+      const points: Array<{ x: number; y: number }> = [];
+      let currentY = centerOf(edge.from);
+      points.push({ x: xs[edge.from] + NODE_W, y: currentY });
+      for (const id of chains.get(edge.key) ?? []) {
+        points.push({ x: xs[id], y: currentY });
+        currentY = centerOf(id);
+        points.push({ x: xs[id], y: currentY });
+      }
+      const lastLane = lane(toLevel - 1);
+      const targetY = centerOf(edge.to);
+      points.push({ x: lastLane, y: currentY });
+      points.push({ x: lastLane, y: targetY });
+      points.push({ x: xs[edge.to], y: targetY });
+      return { key: edge.key, from: edge.from, to: edge.to, d: route(points) };
+    });
+
+    const width = Math.max(NODE_W, levels.length * (NODE_W + GAP_X) - GAP_X);
+    return { xs, ys, width, height: Math.max(NODE_H, maxBottom - minTop), edges };
   }, [repos]);
 
   const fit = useCallback(() => {
@@ -114,7 +272,7 @@ export function GraphView({ repos, plan, baseline, selected, onSelect }: Props) 
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if ((event.target as HTMLElement).closest('.node')) return;
+    if ((event.target as HTMLElement).closest('.node, .graph-controls')) return;
     drag.current = { px: event.clientX, py: event.clientY, x: view.x, y: view.y };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -133,9 +291,7 @@ export function GraphView({ repos, plan, baseline, selected, onSelect }: Props) 
     drag.current = null;
   };
 
-  const edges = repos.flatMap((repo) =>
-    repo.dependsOn.map((dep) => ({ from: dep, to: repo.key })),
-  );
+  const edges = layout.edges;
 
   const dimClass = (key: string) => (related && !related.has(key) ? ' dim' : '');
 
@@ -170,17 +326,12 @@ export function GraphView({ repos, plan, baseline, selected, onSelect }: Props) 
           viewBox={`0 0 ${layout.width} ${layout.height}`}
         >
           {edges.map((edge) => {
-            const x1 = (layout.xs[edge.from] ?? 0) + NODE_W;
-            const y1 = (layout.ys[edge.from] ?? 0) + NODE_H / 2;
-            const x2 = layout.xs[edge.to] ?? 0;
-            const y2 = (layout.ys[edge.to] ?? 0) + NODE_H / 2;
-            const mid = (x1 + x2) / 2;
             const status = statusOf(edge.to);
             const dim = related && !(related.has(edge.from) && related.has(edge.to));
             return (
               <path
-                key={`${edge.from}->${edge.to}`}
-                d={`M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`}
+                key={edge.key}
+                d={edge.d}
                 className={`edge status-${status}${dim ? ' dim' : ''}`}
               />
             );

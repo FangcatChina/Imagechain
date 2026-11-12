@@ -34,7 +34,6 @@ export type DevicePollResult = {
 };
 
 export interface AuthContext {
-  clientId: string;
   relayUrl?: string;
   scopes: string;
 }
@@ -71,6 +70,7 @@ export interface GitProviderClient {
     opts: { ref: string; inputs?: Record<string, string> },
   ): Promise<{ runId?: string }>;
   latestRunId(ref: RepoRef, file: string): Promise<string | null>;
+  latestRun(ref: RepoRef, opts?: { branch?: string; file?: string }): Promise<RunInfo | null>;
   run(ref: RepoRef, runId: string): Promise<RunInfo>;
   latestRelease(ref: RepoRef): Promise<ReleaseInfo | null>;
   tags(ref: RepoRef): Promise<TagInfo[]>;

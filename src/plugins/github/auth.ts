@@ -1,13 +1,15 @@
 import type { AuthContext, AuthProvider, DevicePollResult, WebFlowContext } from '../types';
 
-const DEVICE_CODE_ENDPOINT = 'https://github.com/login/device/code';
-const TOKEN_ENDPOINT = 'https://github.com/login/oauth/access_token';
-const AUTHORIZE_ENDPOINT = 'https://github.com/login/oauth/authorize';
-
 const trim = (url: string): string => url.replace(/\/+$/, '');
 
-function endpoint(ctx: AuthContext, path: string, direct: string): string {
-  return ctx.relayUrl ? `${trim(ctx.relayUrl)}${path}` : direct;
+function relay(ctx: AuthContext): string {
+  const url = ctx.relayUrl?.trim();
+  if (!url) {
+    throw new Error(
+      'Sign-in needs a relay: browsers cannot call github.com OAuth endpoints (no CORS). Set the relay URL in settings, or use a personal access token.',
+    );
+  }
+  return trim(url);
 }
 
 async function postForm(url: string, params: Record<string, string>): Promise<Record<string, unknown>> {
@@ -48,11 +50,7 @@ export const githubAuth: AuthProvider = {
 
   deviceFlow: {
     async start(ctx: AuthContext) {
-      if (!ctx.clientId) throw new Error('GitHub OAuth client ID is required');
-      const data = await postForm(endpoint(ctx, '/device/code', DEVICE_CODE_ENDPOINT), {
-        client_id: ctx.clientId,
-        scope: ctx.scopes,
-      });
+      const data = await postForm(`${relay(ctx)}/device/code`, { scope: ctx.scopes });
       if (data.error) throw new Error(String(data.error_description ?? data.error));
       return {
         deviceCode: String(data.device_code),
@@ -64,8 +62,7 @@ export const githubAuth: AuthProvider = {
     },
 
     async poll(ctx: AuthContext, deviceCode: string): Promise<DevicePollResult> {
-      const data = await postForm(endpoint(ctx, '/oauth/access_token', TOKEN_ENDPOINT), {
-        client_id: ctx.clientId,
+      const data = await postForm(`${relay(ctx)}/oauth/access_token`, {
         device_code: deviceCode,
         grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
       });
@@ -92,24 +89,16 @@ export const githubAuth: AuthProvider = {
 
   webFlow: {
     authorizeUrl(ctx: WebFlowContext) {
-      if (!ctx.clientId) throw new Error('GitHub OAuth client ID is required');
       const params = new URLSearchParams({
-        client_id: ctx.clientId,
         redirect_uri: ctx.redirectUri,
         scope: ctx.scopes,
         state: ctx.state,
-        allow_signup: 'true',
       });
-      return `${AUTHORIZE_ENDPOINT}?${params.toString()}`;
+      return `${relay(ctx)}/oauth/authorize?${params.toString()}`;
     },
 
     async exchange(ctx: WebFlowContext) {
-      if (!ctx.relayUrl) {
-        throw new Error(
-          'OAuth2 web flow requires a relay: the token exchange carries a client secret. Set the relay URL in settings.',
-        );
-      }
-      const data = await postForm(`${trim(ctx.relayUrl)}/oauth/exchange`, {
+      const data = await postForm(`${relay(ctx)}/oauth/exchange`, {
         code: String(ctx.code ?? ''),
         redirect_uri: ctx.redirectUri,
         state: ctx.state,

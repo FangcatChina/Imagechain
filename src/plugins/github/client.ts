@@ -31,6 +31,18 @@ function baseHeaders(token: string): Record<string, string> {
 const repoPath = (ref: RepoRef): string =>
   `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.name)}`;
 
+const CACHE_TTL_MS = 60_000;
+
+interface GitHubRunPayload {
+  id: number;
+  status: string;
+  conclusion: string | null;
+  html_url: string;
+  head_sha: string;
+  created_at: string;
+  display_title?: string;
+}
+
 export class GitHubClient implements GitProviderClient {
   readonly id = 'github';
 
@@ -39,7 +51,16 @@ export class GitHubClient implements GitProviderClient {
     private readonly apiBase = 'https://api.github.com',
   ) {}
 
+  private readonly cache = new Map<string, { at: number; value: unknown }>();
+
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const method = (init.method ?? 'GET').toUpperCase();
+    // Run state is polled, everything else is stable enough to reuse for a minute.
+    const cacheable = method === 'GET' && !path.includes('/runs');
+    if (cacheable) {
+      const hit = this.cache.get(path);
+      if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.value as T;
+    }
     const headers: Record<string, string> = {
       ...baseHeaders(this.token),
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
@@ -65,6 +86,8 @@ export class GitHubClient implements GitProviderClient {
       const message = (data as { message?: string } | null)?.message ?? res.statusText;
       throw new GitHubApiError(res.status, `${res.status} ${message}${rateHint}`, path);
     }
+    if (method !== 'GET') this.cache.clear();
+    else if (cacheable) this.cache.set(path, { at: Date.now(), value: data });
     return data as T;
   }
 
@@ -230,16 +253,33 @@ export class GitHubClient implements GitProviderClient {
     }
   }
 
+  async latestRun(ref: RepoRef, opts: { branch?: string; file?: string } = {}): Promise<RunInfo | null> {
+    const params = new URLSearchParams({ per_page: '1' });
+    if (opts.branch) params.set('branch', opts.branch);
+    let path = `${repoPath(ref)}/actions/runs?${params.toString()}`;
+    if (opts.file) {
+      const resolved = await this.resolveWorkflow(ref, opts.file);
+      if (!resolved) return null;
+      path = `${repoPath(ref)}/actions/workflows/${encodeURIComponent(resolved.id)}/runs?${params.toString()}`;
+    }
+    try {
+      const data = await this.request<{ workflow_runs: GitHubRunPayload[] }>(path);
+      const latest = data.workflow_runs?.[0];
+      return latest ? this.mapRun(latest) : null;
+    } catch (err) {
+      if (err instanceof GitHubApiError && err.status === 404) return null;
+      throw err;
+    }
+  }
+
   async run(ref: RepoRef, runId: string): Promise<RunInfo> {
-    const data = await this.request<{
-      id: number;
-      status: string;
-      conclusion: string | null;
-      html_url: string;
-      head_sha: string;
-      created_at: string;
-      display_title?: string;
-    }>(`${repoPath(ref)}/actions/runs/${encodeURIComponent(runId)}`);
+    const data = await this.request<GitHubRunPayload>(
+      `${repoPath(ref)}/actions/runs/${encodeURIComponent(runId)}`,
+    );
+    return this.mapRun(data);
+  }
+
+  private mapRun(data: GitHubRunPayload): RunInfo {
     return {
       id: String(data.id),
       status: data.status,

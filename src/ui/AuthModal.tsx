@@ -55,7 +55,6 @@ export function AuthModal({ open, onClose, onOpenSettings }: Props) {
 
   const auth = plugin.auth;
   const ctx = {
-    clientId: settings.clientId.trim(),
     relayUrl: settings.relayUrl.trim() || undefined,
     scopes: settings.scopes,
   };

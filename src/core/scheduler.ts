@@ -18,6 +18,8 @@ export interface RunnerOptions {
   signal: AbortSignal;
   onPlan: (plan: PlanState) => void;
   onLog: (message: string, level?: LogLevel) => void;
+  /** Restrict the run to these repos; upstream repos outside the set count as ready. */
+  only?: string[];
   pollIntervalMs?: number;
   dispatchTimeoutMs?: number;
   runTimeoutMs?: number;
@@ -46,14 +48,18 @@ export class PlanRunner {
     const graph = buildGraph(this.opts.config.repos);
     if (graph.errors.length) throw new Error(graph.errors.join('; '));
 
-    this.plan.levels = graph.levels;
+    const only = this.opts.only?.length ? new Set(this.opts.only) : null;
+    this.plan.levels = graph.levels
+      .map((level) => level.filter((key) => !only || only.has(key)))
+      .filter((level) => level.length > 0);
     for (const repo of this.opts.config.repos) {
+      if (only && !only.has(repo.key)) continue;
       this.plan.steps[repo.key] = { repoKey: repo.key, status: 'idle', runs: [] };
     }
     this.emit();
 
     try {
-      for (const level of graph.levels) {
+      for (const level of this.plan.levels) {
         await this.runLevel(level);
         this.emit();
       }
@@ -91,7 +97,10 @@ export class PlanRunner {
 
   private async buildRepo(repo: RepoNode): Promise<void> {
     const step = this.plan.steps[repo.key];
-    const blocked = repo.dependsOn.filter((dep) => this.plan.steps[dep]?.status !== 'success');
+    // Upstream repos that are not part of this plan are considered already built.
+    const blocked = repo.dependsOn.filter(
+      (dep) => this.plan.steps[dep] && this.plan.steps[dep].status !== 'success',
+    );
 
     if (blocked.length) {
       step.status = 'skipped';

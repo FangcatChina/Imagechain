@@ -21,6 +21,11 @@ export function RepoEditor({ open, repoKey, onClose }: Props) {
   const availableWorkflows = useApp((s) => s.availableWorkflows);
   const upsertRepo = useApp((s) => s.upsertRepo);
   const removeRepo = useApp((s) => s.removeRepo);
+  const loadWorkflows = useApp((s) => s.loadWorkflows);
+
+  useEffect(() => {
+    if (open && repoKey) void loadWorkflows(repoKey);
+  }, [open, repoKey, loadWorkflows]);
 
   const existing = useMemo(
     () => config?.repos.find((repo) => repo.key === repoKey) ?? null,

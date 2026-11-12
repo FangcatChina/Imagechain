@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { parse, stringify } from 'yaml';
 import SAMPLE_CONFIG from '../../examples/imagechain.yaml?raw';
 import { parseConfig } from './config';
-import { withAncestors } from './graph';
+import { withDescendants } from './graph';
 import { PlanRunner } from './scheduler';
 import type { LogLevel } from './scheduler';
 import type {
@@ -26,7 +26,6 @@ const CREDENTIALS_KEY = 'imagechain:credentials';
 const SETTINGS_KEY = 'imagechain:settings';
 
 export interface AuthSettings {
-  clientId: string;
   relayUrl: string;
   apiBase: string;
   scopes: string;
@@ -34,7 +33,6 @@ export interface AuthSettings {
 }
 
 export const defaultSettings: AuthSettings = {
-  clientId: '',
   relayUrl: '',
   apiBase: 'https://api.github.com',
   scopes: 'repo workflow read:user',
@@ -96,6 +94,7 @@ export interface AppStore {
   select: (key: string | null) => void;
   refreshDetail: (key: string) => Promise<void>;
   loadBaseline: () => Promise<void>;
+  loadWorkflows: (key: string) => Promise<void>;
   pushTag: (key: string, tag: string) => Promise<{ ok: boolean; error?: string }>;
   publishRelease: (
     key: string,
@@ -159,10 +158,11 @@ async function loadDetail(client: GitProviderClient, repo: RepoNode): Promise<Re
 
   const workflows = await Promise.all(
     repo.workflows.map(async (spec) => {
-      const info = await client.workflow(repo.repo, spec.file).catch(() => null);
-      const runId = await client.latestRunId(repo.repo, spec.file).catch(() => null);
-      const run = runId ? await client.run(repo.repo, runId).catch(() => null) : null;
-      return { spec, info, latestRun: run };
+      const [info, latestRun] = await Promise.all([
+        client.workflow(repo.repo, spec.file).catch(() => null),
+        client.latestRun(repo.repo, { file: spec.file }).catch(() => null),
+      ]);
+      return { spec, info, latestRun };
     }),
   );
 
@@ -186,39 +186,25 @@ const initialParse = parseConfig(initialText);
 const initialProvider = readText(PROVIDER_KEY, 'demo');
 
 async function loadBaselineFor(client: GitProviderClient, repo: RepoNode): Promise<RepoBaseline> {
-  const runs = await Promise.all(
-    repo.workflows.map(async (spec) => {
-      const runId = await client.latestRunId(repo.repo, spec.file).catch(() => null);
-      return runId ? await client.run(repo.repo, runId).catch(() => null) : null;
-    }),
-  );
-  const present = runs.filter((run): run is RunInfo => Boolean(run));
+  const lastRun = await client.latestRun(repo.repo).catch(() => null);
 
   let build: RepoBaseline['build'] = 'idle';
-  if (present.some((run) => ['in_progress', 'waiting', 'requested', 'pending'].includes(run.status))) {
-    build = 'running';
-  } else if (present.some((run) => run.status === 'queued')) {
-    build = 'queued';
-  } else if (
-    present.some(
-      (run) => run.status === 'completed' && !['success', 'skipped', 'neutral'].includes(run.conclusion ?? ''),
-    )
-  ) {
-    build = 'failure';
-  } else if (present.length && present.every((run) => run.status === 'completed')) {
-    build = 'success';
+  if (lastRun) {
+    if (['in_progress', 'waiting', 'requested', 'pending'].includes(lastRun.status)) {
+      build = 'running';
+    } else if (lastRun.status === 'queued') {
+      build = 'queued';
+    } else if (lastRun.status === 'completed') {
+      build = ['success', 'skipped', 'neutral'].includes(lastRun.conclusion ?? '')
+        ? 'success'
+        : 'failure';
+    }
   }
 
-  const [release, tags] = await Promise.all([
-    client.latestRelease(repo.repo).catch(() => null),
-    client.tags(repo.repo).catch(() => [] as TagInfo[]),
-  ]);
-  const tag = release?.tag ?? tags[0]?.name;
-  const lastRun = present
-    .slice()
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
+  const release = await client.latestRelease(repo.repo).catch(() => null);
+  const tag = release?.tag ?? (await client.tags(repo.repo).catch(() => [] as TagInfo[]))[0]?.name;
 
-  return { build, lastRun, tag, fetchedAt: Date.now() };
+  return { build, lastRun: lastRun ?? undefined, tag, fetchedAt: Date.now() };
 }
 
 function renderNotes(tag: string, commits: CommitInfo[], previousTag: string | null): string {
@@ -395,7 +381,6 @@ export const useApp = create<AppStore>()((set, get) => {
     credentials: readJson<Record<string, Credential>>(CREDENTIALS_KEY, {}),
     settings: {
       ...defaultSettings,
-      clientId: (import.meta.env.VITE_GITHUB_CLIENT_ID as string | undefined) ?? '',
       relayUrl: (import.meta.env.VITE_OAUTH_RELAY as string | undefined) ?? '',
       ...readJson<Partial<AuthSettings>>(SETTINGS_KEY, {}),
     },
@@ -480,18 +465,27 @@ export const useApp = create<AppStore>()((set, get) => {
           apiBase: state.settings.apiBase,
         });
         const result: Record<string, RepoBaseline> = {};
-        const workflows: Record<string, WorkflowInfo[]> = {};
         await runLimited(config.repos, 4, async (repo) => {
           result[repo.key] = await loadBaselineFor(client, repo).catch(() => ({
             build: 'idle' as const,
             fetchedAt: Date.now(),
           }));
-          workflows[repo.key] = await client.listWorkflows(repo.repo).catch(() => []);
         });
-        set({ baseline: result, availableWorkflows: workflows, baselineLoading: false });
+        set({ baseline: result, baselineLoading: false });
       } catch (err) {
         set({ baselineLoading: false });
         log(`Could not load last build state: ${(err as Error).message}`, 'warn');
+      }
+    },
+
+    loadWorkflows: async (key) => {
+      const repo = get().config?.repos.find((item) => item.key === key);
+      if (!repo) return;
+      try {
+        const workflows = await buildClient().listWorkflows(repo.repo);
+        set((state) => ({ availableWorkflows: { ...state.availableWorkflows, [key]: workflows } }));
+      } catch (err) {
+        log(`Could not list workflows for ${key}: ${(err as Error).message}`, 'warn');
       }
     },
 
@@ -632,12 +626,13 @@ export const useApp = create<AppStore>()((set, get) => {
         return { ok: false, error: 'Sign in to the active provider first' };
       }
 
-      const repos = keys ? withAncestors(config.repos, keys) : config.repos;
+      const repos = keys?.length ? withDescendants(config.repos, keys) : config.repos;
       controller = new AbortController();
       set({ running: true, logs: [], plan: null });
 
       const runner = new PlanRunner({
-        config: { ...config, repos },
+        config,
+        only: keys?.length ? repos.map((repo) => repo.key) : undefined,
         clientFor: async () => buildClient(),
         concurrency: config.concurrency,
         pollIntervalMs: state.settings.pollIntervalMs,

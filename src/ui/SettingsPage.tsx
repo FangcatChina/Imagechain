@@ -114,15 +114,6 @@ export function SettingsPage({ onBack, onConnect }: Props) {
           {provider.requiresAuth && (
             <div className="settings-grid">
               <label className="field-block">
-                OAuth client ID
-                <input
-                  className="mono"
-                  value={settings.clientId}
-                  onChange={(event) => setSettings({ clientId: event.target.value })}
-                  placeholder="Iv1.xxxxxxxxxxxx"
-                />
-              </label>
-              <label className="field-block">
                 Relay URL
                 <input
                   className="mono"
