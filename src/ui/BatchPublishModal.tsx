@@ -35,6 +35,8 @@ export function BatchPublishModal({ open, onClose }: Props) {
 
   if (!open) return null;
 
+  const publishable = config?.repos ?? [];
+
   const toggle = (key: string) => {
     setSelected((list) => (list.includes(key) ? list.filter((item) => item !== key) : [...list, key]));
   };
@@ -89,12 +91,12 @@ export function BatchPublishModal({ open, onClose }: Props) {
         <div className="rules">
           <div className="row spread">
             <span className="muted">
-              {selected.length} of {config?.repos.length ?? 0} selected
+              {selected.length} of {publishable.length} selected
             </span>
             <div className="row">
               <button
                 className="link"
-                onClick={() => setSelected((config?.repos ?? []).map((repo) => repo.key))}
+                onClick={() => setSelected(publishable.map((repo) => repo.key))}
               >
                 Select all
               </button>
@@ -105,7 +107,7 @@ export function BatchPublishModal({ open, onClose }: Props) {
           </div>
 
           <div className="dep-list">
-            {(config?.repos ?? []).map((repo) => (
+            {publishable.map((repo) => (
               <label className="check" key={repo.key}>
                 <input
                   type="checkbox"

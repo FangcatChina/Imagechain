@@ -24,7 +24,8 @@ export function RepoEditor({ open, repoKey, onClose }: Props) {
   const loadWorkflows = useApp((s) => s.loadWorkflows);
 
   useEffect(() => {
-    if (open && repoKey) void loadWorkflows(repoKey);
+    if (!open || !repoKey) return;
+    void loadWorkflows(repoKey);
   }, [open, repoKey, loadWorkflows]);
 
   const existing = useMemo(
@@ -34,10 +35,11 @@ export function RepoEditor({ open, repoKey, onClose }: Props) {
 
   const [key, setKey] = useState('');
   const [slug, setSlug] = useState('');
+  const [image, setImage] = useState('');
   const [description, setDescription] = useState('');
-  const [branch, setBranch] = useState('main');
+  const [branch, setBranch] = useState('dev');
   const [workflows, setWorkflows] = useState<WorkflowDraft[]>([
-    { file: 'build-image.yml', ref: '', optional: false },
+    { file: 'vib-build.yml', ref: '', optional: false },
   ]);
   const [dependsOn, setDependsOn] = useState<string[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
@@ -47,6 +49,7 @@ export function RepoEditor({ open, repoKey, onClose }: Props) {
     if (existing) {
       setKey(existing.key);
       setSlug(`${existing.repo.owner}/${existing.repo.name}`);
+      setImage(existing.image ?? '');
       setDescription(existing.description);
       setBranch(existing.branch);
       setWorkflows(
@@ -60,9 +63,10 @@ export function RepoEditor({ open, repoKey, onClose }: Props) {
     } else {
       setKey('');
       setSlug('');
+      setImage('');
       setDescription('');
-      setBranch(config?.branch ?? 'main');
-      setWorkflows([{ file: 'build-image.yml', ref: '', optional: false }]);
+      setBranch(config?.branch ?? 'dev');
+      setWorkflows([{ file: 'vib-build.yml', ref: '', optional: false }]);
       setDependsOn([]);
     }
     setErrors([]);
@@ -92,7 +96,9 @@ export function RepoEditor({ open, repoKey, onClose }: Props) {
     if ((config?.repos ?? []).some((repo) => repo.key === trimmedKey && repo.key !== repoKey)) {
       problems.push(`Key ${trimmedKey} is already used`);
     }
-    if (!owner || !name) problems.push('Repository must be owner/name');
+    if (!owner || !name) {
+      problems.push('Repository must be owner/name');
+    }
     if (!workflows.some((workflow) => workflow.file.trim())) {
       problems.push('At least one workflow file is required');
     }
@@ -108,7 +114,7 @@ export function RepoEditor({ open, repoKey, onClose }: Props) {
       repo: { owner, name },
       url: existing?.url ?? `https://github.com/${owner}/${name}.git`,
       description: description.trim(),
-      branch: branch.trim() || 'main',
+      branch: branch.trim() || 'dev',
       dependsOn,
       workflows: workflows
         .filter((workflow) => workflow.file.trim())
@@ -118,6 +124,7 @@ export function RepoEditor({ open, repoKey, onClose }: Props) {
           optional: workflow.optional,
         })),
       labels: existing?.labels ?? [],
+      image: image.trim() || undefined,
     };
 
     if (!upsertRepo(node, repoKey ?? undefined)) {
@@ -164,7 +171,16 @@ export function RepoEditor({ open, repoKey, onClose }: Props) {
                   className="mono"
                   value={slug}
                   onChange={(event) => setSlug(event.target.value)}
-                  placeholder="acme/api-image"
+                  placeholder="vanilla-os/desktop-image"
+                />
+              </label>
+              <label className="field-block">
+                Image reference
+                <input
+                  className="mono"
+                  value={image}
+                  onChange={(event) => setImage(event.target.value)}
+                  placeholder="ghcr.io/vanilla-os/gnome:latest"
                 />
               </label>
               <label className="field-block">
@@ -173,7 +189,7 @@ export function RepoEditor({ open, repoKey, onClose }: Props) {
                   className="mono"
                   value={branch}
                   onChange={(event) => setBranch(event.target.value)}
-                  placeholder="main"
+                  placeholder="dev"
                 />
               </label>
               <label className="field-block">
@@ -197,7 +213,7 @@ export function RepoEditor({ open, repoKey, onClose }: Props) {
                     list={`workflow-files-${index}`}
                     value={workflow.file}
                     onChange={(event) => updateWorkflow(index, { file: event.target.value })}
-                    placeholder="build-image.yml"
+                    placeholder="vib-build.yml"
                   />
                   <datalist id={`workflow-files-${index}`}>
                     {workflowOptions.map((option) => (

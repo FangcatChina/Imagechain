@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../core/store';
+import { clearSharedConfig, readSharedConfig, readSharedConfigUrl } from '../core/share';
 import { getPlugin } from '../plugins/registry';
 import { GraphView } from './GraphView';
 import { RepoDetail } from './RepoDetail';
@@ -23,6 +24,7 @@ export default function App() {
   const startPlan = useApp((s) => s.startPlan);
   const cancelPlan = useApp((s) => s.cancelPlan);
   const resetConfig = useApp((s) => s.resetConfig);
+  const importConfig = useApp((s) => s.importConfig);
   const log = useApp((s) => s.log);
 
   const [authOpen, setAuthOpen] = useState(false);
@@ -105,6 +107,51 @@ export default function App() {
   }, [notice]);
 
   useEffect(() => {
+    const shared = readSharedConfig();
+    if (shared) {
+      const ok = importConfig(shared.text);
+      clearSharedConfig();
+      if (ok) {
+        if (shared.select) select(shared.select);
+        setNotice('Loaded the dependency chain from the marketplace');
+      } else {
+        setNotice(
+          `Could not import the shared chain: ${useApp.getState().configErrors[0] ?? 'invalid configuration'}`,
+        );
+      }
+      return;
+    }
+
+    const url = readSharedConfigUrl();
+    if (!url) return;
+
+    let cancelled = false;
+    fetch(url)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+        return response.text();
+      })
+      .then((text) => {
+        if (cancelled) return;
+        const ok = importConfig(text);
+        clearSharedConfig();
+        if (ok) setNotice('Loaded the dependency chain from a hosted YAML file');
+        else {
+          setNotice(
+            `Could not import ${url}: ${useApp.getState().configErrors[0] ?? 'invalid configuration'}`,
+          );
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setNotice(`Could not load ${url}: ${err.message}`);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [importConfig, select]);
+
+  useEffect(() => {
     void loadBaseline();
   }, [providerId, config, loadBaseline]);
 
@@ -176,6 +223,14 @@ export default function App() {
               </button>
             </>
           )}
+          <a
+            className="link"
+            href="https://marketplace.vanillaos.org"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Marketplace
+          </a>
         </div>
       </header>
 

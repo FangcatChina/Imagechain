@@ -43,6 +43,7 @@ export interface RepoNode {
   dependsOn: string[];
   workflows: WorkflowSpec[];
   labels: string[];
+  image?: string;
 }
 
 export interface ChainConfig {

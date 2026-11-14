@@ -84,6 +84,12 @@ export function RepoDetail({ repoKey }: Props) {
               <span>Status</span>
               <strong className={`tone-${buildStatus}`}>{statusText[buildStatus]}</strong>
             </div>
+            {repo.image && (
+              <div className="kv">
+                <span>Image</span>
+                <strong className="mono">{repo.image}</strong>
+              </div>
+            )}
             {baseline?.lastRun && (
               <div className="kv">
                 <span>Last build</span>
@@ -100,7 +106,7 @@ export function RepoDetail({ repoKey }: Props) {
               <strong>{detail?.meta?.defaultBranch ?? repo.branch}</strong>
             </div>
             <div className="kv">
-              <span>Depends on</span>
+              <span>Upstream</span>
               <strong>{repo.dependsOn.join(', ') || 'none'}</strong>
             </div>
 

@@ -238,15 +238,20 @@ function toYamlRepo(node: RepoNode): Record<string, unknown> {
   return {
     key: node.key,
     repo: `${node.repo.owner}/${node.repo.name}`,
+    image: node.image || undefined,
     description: node.description || undefined,
     branch: node.branch,
     dependsOn: node.dependsOn,
-    workflows: node.workflows.map((workflow) => ({
-      file: workflow.file,
-      ...(workflow.ref ? { ref: workflow.ref } : {}),
-      ...(workflow.inputs ? { inputs: workflow.inputs } : {}),
-      ...(workflow.optional ? { optional: true } : {}),
-    })),
+    ...(node.workflows.length
+      ? {
+          workflows: node.workflows.map((workflow) => ({
+            file: workflow.file,
+            ...(workflow.ref ? { ref: workflow.ref } : {}),
+            ...(workflow.inputs ? { inputs: workflow.inputs } : {}),
+            ...(workflow.optional ? { optional: true } : {}),
+          })),
+        }
+      : {}),
   };
 }
 

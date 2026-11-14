@@ -50,3 +50,4 @@ examples/      sample pipeline YAML
 
 - Tokens live in `localStorage`; prefer a fine-grained token, or revoke the grant afterwards.
 - Every poll costs an API request — lower `concurrency` or raise `pollIntervalMs` for large graphs.
+- `#config=<base64url YAML>&select=<key>` imports a chain.

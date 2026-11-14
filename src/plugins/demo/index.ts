@@ -72,21 +72,10 @@ function ensureState(ref: RepoRef): DemoRepoState {
   const id = idOf(ref);
   let entry = state.get(id);
   if (!entry) {
-    const head = fakeSha(hash(id));
     entry = {
       runs: new Map(),
-      releases: [
-        {
-          tag: 'v2026.10.28.01',
-          name: 'v2026.10.28.01',
-          url: `https://github.com/${id}/releases/tag/v2026.10.28.01`,
-          publishedAt: new Date(Date.now() - 14 * DAY).toISOString(),
-          draft: false,
-          prerelease: false,
-          body: 'Previous automated release.',
-        },
-      ],
-      tags: [{ name: 'v2026.10.28.01', sha: head }],
+      releases: [],
+      tags: [],
     };
     state.set(id, entry);
   }
@@ -123,7 +112,7 @@ class DemoClient implements GitProviderClient {
   async repository(ref: RepoRef): Promise<RepositoryMeta> {
     const id = idOf(ref);
     return {
-      defaultBranch: 'main',
+      defaultBranch: 'dev',
       htmlUrl: `https://github.com/${id}`,
       description: `${ref.name} demo repository`,
       private: false,
@@ -147,7 +136,7 @@ class DemoClient implements GitProviderClient {
   async listWorkflows(ref: RepoRef): Promise<WorkflowInfo[]> {
     const entry = ensureState(ref);
     const files = new Set<string>(entry.runs.keys());
-    if (!files.size) files.add('build-image.yml');
+    if (!files.size) files.add('vib-build.yml');
     return [...files].map((file) => ({
       id: `demo-${file}`,
       name: file.replace(/\.ya?ml$/, ''),
@@ -181,22 +170,8 @@ class DemoClient implements GitProviderClient {
 
   async latestRunId(ref: RepoRef, file: string): Promise<string | null> {
     const entry = ensureState(ref);
-    let list = entry.runs.get(file);
-    if (!list) {
-      list = [];
-      entry.runs.set(file, list);
-    }
-    if (!list.length) {
-      runCounter += 1;
-      list.push({
-        id: String(90000 + runCounter),
-        file,
-        createdAt: Date.now() - 2 * DAY,
-        duration: 1,
-        headSha: fakeSha(hash(`${idOf(ref)}:${file}:seed`)),
-        failure: false,
-      });
-    }
+    const list = entry.runs.get(file);
+    if (!list?.length) return null;
     return list[list.length - 1].id;
   }
 

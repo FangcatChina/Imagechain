@@ -44,12 +44,15 @@ export function parseConfig(text: string): ParseResult {
       continue;
     }
     const value = rawItem as Record<string, unknown>;
-    const slug = String(value.repo ?? value.name ?? mapKey ?? '').trim();
-    const [owner, name] = slug.split('/');
+    const rawSlug = String(value.repo ?? value.name ?? mapKey ?? '').trim();
+    const image = value.image ? String(value.image) : undefined;
+    const [owner, name] = rawSlug.split('/');
+
     if (!owner || !name) {
-      errors.push(`Repository "${mapKey ?? slug}" must use owner/name form`);
+      errors.push(`Repository "${mapKey ?? rawSlug}" must use owner/name form`);
       continue;
     }
+
     const key = String(value.key ?? mapKey ?? name);
 
     const workflows: WorkflowSpec[] = [];
@@ -92,6 +95,7 @@ export function parseConfig(text: string): ParseResult {
       dependsOn,
       workflows,
       labels: Array.isArray(value.labels) ? value.labels.map(String) : [],
+      image,
     });
   }
 
