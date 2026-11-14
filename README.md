@@ -16,7 +16,7 @@ simulated data.
 ## GitHub setup
 
 1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App.
-   Callback URL is your deployment URL, e.g. `https://<your-host>/`.
+   Callback URL is the relay's `https://<relay-host>/oauth/callback`.
 2. Deploy the relay. It holds both credentials, so the browser never sees them:
 
    ```bash
@@ -30,7 +30,9 @@ simulated data.
 
 The page only knows the relay origin. Device Flow, the `/oauth/authorize` redirect and the code
 exchange are all finished by the Worker, which injects `client_id` / `client_secret` from its own
-environment. Without a relay, use a fine-grained token (`Contents: read/write`,
+environment. GitHub redirects to `/oauth/callback` (alias `/callback`) on the Worker, which
+forwards `code`/`state`/`error` to the page; `GET /health` reports `oauthWeb` and that callback
+URL. Without a relay, use a fine-grained token (`Contents: read/write`,
 `Actions: read/write`, `Metadata: read`) — it stays in `localStorage` and talks to
 `api.github.com` directly.
 

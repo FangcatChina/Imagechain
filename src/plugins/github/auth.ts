@@ -101,7 +101,6 @@ export const githubAuth: AuthProvider = {
       const data = await postForm(`${relay(ctx)}/oauth/exchange`, {
         code: String(ctx.code ?? ''),
         redirect_uri: ctx.redirectUri,
-        state: ctx.state,
       });
       if (!data.access_token) {
         throw new Error(String(data.error_description ?? data.error ?? 'Token exchange failed'));

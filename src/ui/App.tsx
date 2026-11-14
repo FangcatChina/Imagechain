@@ -37,17 +37,25 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     const state = params.get('state');
-    if (!code || !state) return;
+    const denied = params.get('error');
+    if (!denied && (!code || !state)) return;
 
     const savedState = sessionStorage.getItem('imagechain:oauth-state');
     const savedProvider = sessionStorage.getItem('imagechain:oauth-provider');
     window.history.replaceState({}, '', window.location.pathname + window.location.hash);
 
+    if (denied) {
+      sessionStorage.removeItem('imagechain:oauth-state');
+      sessionStorage.removeItem('imagechain:oauth-provider');
+      log(`OAuth2 sign-in failed: ${params.get('error_description') ?? denied}`, 'error');
+      return;
+    }
     if (!savedState || savedState !== state) {
       log('OAuth2 callback rejected: state mismatch', 'error');
       return;
     }
     sessionStorage.removeItem('imagechain:oauth-state');
+    sessionStorage.removeItem('imagechain:oauth-provider');
 
     const store = useApp.getState();
     const plugin = getPlugin(savedProvider ?? store.providerId);
@@ -58,7 +66,7 @@ export default function App() {
     }
     const redirectUri = window.location.origin + window.location.pathname;
     webFlow
-      .exchange({ ...store.settings, redirectUri, state, code })
+      .exchange({ ...store.settings, redirectUri, state, code: code ?? undefined })
       .then(async (result) => {
         let login: string | undefined;
         try {

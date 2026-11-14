@@ -139,19 +139,19 @@ export function SettingsPage({ onBack, onConnect }: Props) {
                   onChange={(event) => setSettings({ scopes: event.target.value })}
                 />
               </label>
-            <label className="field-block">
-              Request interval (seconds)
-              <input
-                type="number"
-                min={2}
-                step={1}
-                value={Math.round(settings.pollIntervalMs / 1000)}
-                onChange={(event) =>
-                  setSettings({ pollIntervalMs: Math.max(2000, Number(event.target.value || 10) * 1000) })
-                }
-              />
-            </label>
-          </div>
+              <label className="field-block">
+                Request interval (seconds)
+                <input
+                  type="number"
+                  min={2}
+                  step={1}
+                  value={Math.round(settings.pollIntervalMs / 1000)}
+                  onChange={(event) =>
+                    setSettings({ pollIntervalMs: Math.max(2000, Number(event.target.value || 10) * 1000) })
+                  }
+                />
+              </label>
+            </div>
           )}
         </section>
 
