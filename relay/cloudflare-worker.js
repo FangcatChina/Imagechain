@@ -3,7 +3,8 @@ const CORS = {
   'access-control-allow-headers': 'content-type, accept, authorization',
   'access-control-allow-methods': 'GET, POST, OPTIONS',
   'access-control-max-age': '86400',
-  'access-control-expose-headers': 'x-oauth-scopes, x-ratelimit-remaining, x-ratelimit-reset, link',
+  'access-control-expose-headers':
+    'x-oauth-scopes, x-accepted-github-permissions, x-ratelimit-remaining, x-ratelimit-reset, link',
 };
 
 const DEFAULT_SCOPE = 'repo workflow read:user';
@@ -41,8 +42,27 @@ async function proxyForm(url, params) {
   }
 }
 
-const relayRedirectUri = (origin, app) =>
-  `${origin}/oauth/callback${app ? `?app=${encodeURIComponent(app)}` : ''}`;
+const relayCallbackUrl = (origin) => `${origin}/oauth/callback`;
+
+const b64url = (value) =>
+  btoa(encodeURIComponent(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+const unb64url = (value) => {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/');
+  return decodeURIComponent(atob(padded + '='.repeat((4 - (padded.length % 4)) % 4)));
+};
+
+const packState = (state, app) => (app ? `${state}.${b64url(app)}` : state);
+
+const unpackState = (packed) => {
+  const cut = packed.lastIndexOf('.');
+  if (cut === -1) return { state: packed, app: '' };
+  try {
+    return { state: packed.slice(0, cut), app: unb64url(packed.slice(cut + 1)) };
+  } catch {
+    return { state: packed, app: '' };
+  }
+};
 
 const githubTokenUrl = 'https://github.com/login/oauth/access_token';
 
@@ -74,26 +94,23 @@ export default {
       }
       const params = new URLSearchParams({
         client_id: env.GITHUB_CLIENT_ID,
-        // GitHub returns to the relay, which forwards code + state to the app.
-        redirect_uri: relayRedirectUri(url.origin, app),
+        // Must equal the callback URL registered on the app, so it cannot carry the app address.
+        redirect_uri: relayCallbackUrl(url.origin),
         scope: url.searchParams.get('scope') || DEFAULT_SCOPE,
-        state: url.searchParams.get('state') || '',
+        state: packState(url.searchParams.get('state') || '', app),
         allow_signup: 'true',
       });
       return Response.redirect(`https://github.com/login/oauth/authorize?${params.toString()}`, 302);
     }
 
-    if (
-      (url.pathname === '/oauth/callback' || url.pathname === '/callback') &&
-      request.method === 'GET'
-    ) {
-      const app = url.searchParams.get('app') || '';
+    if (url.pathname === '/oauth/callback' && request.method === 'GET') {
+      const { state, app } = unpackState(url.searchParams.get('state') || '');
       if (!app) {
         return json(
           {
             error: 'invalid_request',
             error_description:
-              'Missing app parameter: start the flow via /oauth/authorize?redirect_uri=<app>',
+              'state does not carry the app URL: start at /oauth/authorize?redirect_uri=<app>',
           },
           400,
         );
@@ -107,10 +124,11 @@ export default {
           400,
         );
       }
-      for (const key of ['code', 'state', 'scope', 'error', 'error_description', 'error_uri']) {
+      for (const key of ['code', 'scope', 'error', 'error_description', 'error_uri']) {
         const value = url.searchParams.get(key);
         if (value !== null) target.searchParams.set(key, value);
       }
+      if (state) target.searchParams.set('state', state);
       return Response.redirect(target.toString(), 302);
     }
 
@@ -154,18 +172,12 @@ export default {
       if (!body.code) {
         return json({ error: 'invalid_request', error_description: 'code is required' }, 400);
       }
-      const app = body.redirect_uri || body.app || '';
-      if (!app) {
-        return json(
-          { error: 'invalid_request', error_description: 'redirect_uri is required' },
-          400,
-        );
-      }
       return proxyForm(githubTokenUrl, {
         client_id: env.GITHUB_CLIENT_ID,
         client_secret: env.GITHUB_CLIENT_SECRET,
         code: body.code,
-        redirect_uri: relayRedirectUri(url.origin, app),
+        // Must be byte-identical to the one used on /oauth/authorize.
+        redirect_uri: relayCallbackUrl(url.origin),
       });
     }
 

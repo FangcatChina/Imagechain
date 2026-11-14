@@ -31,6 +31,30 @@ function baseHeaders(token: string): Record<string, string> {
 const repoPath = (ref: RepoRef): string =>
   `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.name)}`;
 
+// GitHub refuses writes with a bare 403 "Resource not accessible by integration"; say what is missing.
+function forbiddenHint(res: Response, token: string): string {
+  const parts: string[] = [];
+  const accepted = res.headers.get('x-accepted-github-permissions');
+  if (accepted) parts.push(`this endpoint needs ${accepted.replace(/;/g, ' or ')}`);
+  if (token.startsWith('github_pat_')) {
+    parts.push('fine-grained tokens need Contents: read/write on this repository');
+  } else if (token.startsWith('ghs_') || token.startsWith('ghu_')) {
+    parts.push(
+      'GitHub App tokens need the Contents: write permission and an installation on this repository',
+    );
+  } else if (token.startsWith('gho_')) {
+    parts.push(
+      'OAuth App tokens need the repo scope, and the organisation must allow the app (third-party access policy)',
+    );
+  } else if (token.startsWith('ghp_')) {
+    const granted = (res.headers.get('x-oauth-scopes') ?? '')
+      .split(',')
+      .map((scope) => scope.trim());
+    if (!granted.includes('repo')) parts.push('classic tokens need the repo scope');
+  }
+  return parts.length ? ` (${parts.join('; ')})` : '';
+}
+
 const CACHE_TTL_MS = 60_000;
 
 interface GitHubRunPayload {
@@ -84,7 +108,8 @@ export class GitHubClient implements GitProviderClient {
           ? ` (rate limit exhausted, resets at ${new Date(resetAt).toLocaleTimeString()})`
           : '';
       const message = (data as { message?: string } | null)?.message ?? res.statusText;
-      throw new GitHubApiError(res.status, `${res.status} ${message}${rateHint}`, path);
+      const hint = res.status === 403 ? forbiddenHint(res, this.token) : '';
+      throw new GitHubApiError(res.status, `${res.status} ${message}${rateHint}${hint}`, path);
     }
     if (method !== 'GET') this.cache.clear();
     else if (cacheable) this.cache.set(path, { at: Date.now(), value: data });
